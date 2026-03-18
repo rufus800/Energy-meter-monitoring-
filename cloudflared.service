@@ -1,0 +1,17 @@
+[Unit]
+Description=Cloudflare Tunnel for Energy Monitor
+After=network.target energy-meter.service
+Requires=energy-meter.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --config /etc/cloudflared/config.yml run
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cloudflared
+
+[Install]
+WantedBy=multi-user.target

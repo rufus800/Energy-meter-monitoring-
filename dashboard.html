@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Power Quality & Energy Monitoring</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#020d18;--card:rgba(4,28,52,0.85);
+  --teal:#00ffc8;--blue:#38b8ff;--blue2:#0090e0;
+  --red:#ff4d4d;--warn:#ffbf3c;--purple:#b06aff;
+  --border:rgba(0,255,200,0.18);--borderl:rgba(0,255,200,0.07);
+  --sans:'Inter',sans-serif;
+}
+html{background:var(--bg)}
+body{min-height:100vh;background:var(--bg);color:#fff;font-family:var(--sans);overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse 80% 55% at 10% 15%,rgba(0,144,224,.13) 0%,transparent 55%),
+             radial-gradient(ellipse 65% 55% at 90% 85%,rgba(0,200,150,.11) 0%,transparent 55%)}
+.page{position:relative;z-index:1;max-width:1440px;margin:0 auto;
+  padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px;min-height:100vh}
+
+/* HEADER */
+header{display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1.5px solid var(--border);padding-bottom:10px;flex-wrap:wrap;gap:8px}
+.hl{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+.logo-img{width:50px;height:50px;border-radius:8px;object-fit:contain;background:#fff;
+  padding:3px;flex-shrink:0;box-shadow:0 0 18px rgba(220,40,40,.3)}
+.title-block h1{font-size:clamp(.9rem,2.2vw,1.25rem);font-weight:900;color:#fff;line-height:1.2}
+.title-block h1 span{color:var(--teal)}
+.title-block p{font-size:clamp(.52rem,1.1vw,.65rem);font-weight:600;color:rgba(0,255,200,.42);
+  letter-spacing:.05em;margin-top:2px;text-transform:uppercase}
+.hr{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.clk{font-size:clamp(.95rem,2.2vw,1.35rem);font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
+.dt{font-size:.55rem;font-weight:600;color:rgba(0,255,200,.38);text-align:right;margin-top:1px}
+.ts-ln{font-size:.5rem;font-weight:600;color:rgba(0,255,200,.25);text-align:right;margin-top:2px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 13px;border-radius:20px;
+  font-size:.6rem;font-weight:800;letter-spacing:.08em;border:1px solid;transition:all .5s;
+  text-transform:uppercase;white-space:nowrap}
+.pill.connecting{background:rgba(56,184,255,.1);border-color:rgba(56,184,255,.4);color:var(--blue)}
+.pill.connected {background:rgba(0,255,200,.1);border-color:rgba(0,255,200,.4);color:var(--teal)}
+.pill.offline   {background:rgba(255,77,77,.1); border-color:rgba(255,77,77,.4); color:var(--red)}
+.pdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.connecting .pdot{background:var(--blue);animation:blink 1.2s infinite}
+.connected  .pdot{background:var(--teal);animation:gp 2.5s infinite}
+.offline    .pdot{background:var(--red)}
+@keyframes gp{0%,100%{opacity:1;box-shadow:0 0 7px var(--teal)}50%{opacity:.2;box-shadow:none}}
+@keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
+.nav-a{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:20px;
+  font-size:.6rem;font-weight:800;letter-spacing:.08em;
+  border:1px solid rgba(56,184,255,.4);color:var(--blue);background:rgba(56,184,255,.08);
+  text-decoration:none;white-space:nowrap;transition:background .25s}
+.nav-a:hover{background:rgba(56,184,255,.16)}
+
+.sec-lbl{font-size:.6rem;font-weight:800;letter-spacing:.14em;color:var(--teal);opacity:.45;
+  text-transform:uppercase;padding-left:2px}
+
+/* CARD BASE */
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;
+  position:relative;overflow:hidden;transition:border-color .4s,box-shadow .4s}
+.card::before{content:'';position:absolute;top:0;left:8%;right:8%;height:1.5px;
+  background:linear-gradient(90deg,transparent,var(--teal),transparent);opacity:.6}
+.card.warn{border-color:rgba(255,191,60,.5);box-shadow:0 0 22px rgba(255,191,60,.07)}
+.card.warn::before{background:linear-gradient(90deg,transparent,var(--warn),transparent)}
+.card.fault{border-color:rgba(255,77,77,.5);box-shadow:0 0 22px rgba(255,77,77,.07)}
+.card.fault::before{background:linear-gradient(90deg,transparent,var(--red),transparent)}
+
+/* variable name tag only — no offset numbers */
+.var-tag{position:absolute;top:9px;right:10px;font-size:.52rem;font-weight:800;
+  color:var(--teal);letter-spacing:.03em;background:rgba(0,255,200,.1);
+  border:1px solid rgba(0,255,200,.25);padding:2px 8px;border-radius:4px}
+
+/* GAUGE */
+.gauge-card{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 8px 8px}
+.gsvg{width:100%;max-width:185px;display:block}
+.g-lbl{font-size:clamp(.65rem,1.4vw,.75rem);font-weight:700;color:rgba(0,255,200,.72);margin-top:5px;text-align:center}
+.g-st{font-size:.65rem;font-weight:700;margin-top:3px;height:15px;transition:color .4s;color:var(--teal)}
+
+/* STAT CARD */
+.stat-card{padding:15px 17px;display:flex;flex-direction:column;justify-content:center}
+.st-lbl{font-size:.65rem;font-weight:700;letter-spacing:.08em;color:rgba(0,255,200,.5);
+  text-transform:uppercase;margin-bottom:6px}
+.st-val{font-size:clamp(1.8rem,4vw,2.8rem);font-weight:900;color:#fff;line-height:1;
+  font-variant-numeric:tabular-nums;transition:color .4s}
+.st-unit{font-size:clamp(.7rem,1.5vw,.9rem);font-weight:700;color:var(--teal);margin-left:4px}
+.st-status{font-size:.65rem;font-weight:700;margin-top:7px;color:var(--teal);transition:color .4s}
+
+/* POWER BAR */
+.pwr-wrap{margin-top:10px}
+.pwr-track{position:relative;height:10px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden;margin-bottom:4px}
+.pwr-fill{height:100%;border-radius:5px;transition:width 1s ease,background .4s;background:linear-gradient(90deg,#0090e0,#00ffc8)}
+.pwr-marker{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.25)}
+.pwr-zones{display:flex;justify-content:space-between;margin-bottom:6px}
+.pwr-z{font-size:.46rem;font-weight:600;color:rgba(0,255,200,.32)}
+.pwr-badge,.thd-badge,.pf-badge{font-size:.6rem;font-weight:800;letter-spacing:.07em;
+  padding:3px 10px;border-radius:4px;border:1px solid;display:inline-block;transition:all .4s;text-transform:uppercase}
+.ok   {background:rgba(0,255,200,.1);color:var(--teal);border-color:rgba(0,255,200,.35)}
+.warn-b{background:rgba(255,191,60,.1);color:var(--warn);border-color:rgba(255,191,60,.35)}
+.fault-b{background:rgba(255,77,77,.1);color:var(--red);border-color:rgba(255,77,77,.35)}
+
+/* PF BAR */
+.pf-bar-wrap{margin-top:10px}
+.pf-scale{display:flex;justify-content:space-between;font-size:.5rem;font-weight:600;color:rgba(0,255,200,.3);margin-bottom:4px}
+.pf-track{position:relative;height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden;margin-bottom:4px}
+.pf-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,#ff4d4d,#ffbf3c 60%,#00ffc8 85%);width:0%;transition:width 1s ease}
+.pf-note{font-size:.48rem;font-weight:600;color:rgba(0,255,200,.28)}
+
+/* FREQ RULER */
+.freq-wrap{margin-top:10px}
+.fscale{display:flex;justify-content:space-between;font-size:.5rem;font-weight:600;color:rgba(0,255,200,.3);margin-bottom:4px}
+.ftrack{position:relative;height:6px;background:rgba(255,255,255,.06);border-radius:3px}
+.ffill{position:absolute;inset:0;border-radius:3px;background:linear-gradient(90deg,var(--blue2),var(--teal));opacity:.18}
+.fcen{position:absolute;width:2px;height:100%;background:rgba(0,255,200,.4);left:50%;transform:translateX(-50%)}
+.fneedle{position:absolute;top:-5px;width:14px;height:14px;border-radius:50%;
+  background:var(--teal);border:2px solid rgba(255,255,255,.85);
+  transform:translateX(-50%);transition:left .9s ease,background .4s,box-shadow .4s}
+.fdev{text-align:center;font-size:.62rem;font-weight:700;color:var(--teal);margin-top:5px}
+
+/* THD BAR */
+.thd-wrap{margin-top:10px}
+.thd-lbl{font-size:.5rem;font-weight:600;color:rgba(0,255,200,.35);margin-bottom:4px;display:block}
+.thd-bg{height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden;margin-bottom:3px}
+.thd-fill{height:100%;border-radius:4px;transition:width 1s ease,background .4s;background:linear-gradient(90deg,var(--blue2),var(--teal))}
+.thd-marks{display:flex;justify-content:space-between;margin-bottom:5px}
+.thd-mark{font-size:.46rem;font-weight:600;color:rgba(0,255,200,.26)}
+
+/* ENERGY */
+.e-inner{padding:15px 17px;display:flex;flex-direction:column;justify-content:center;height:100%}
+.e-lbl{font-size:.65rem;font-weight:700;letter-spacing:.08em;color:rgba(176,106,255,.7);text-transform:uppercase;margin-bottom:6px}
+.e-val{font-size:clamp(2rem,4.5vw,3.2rem);font-weight:900;color:#fff;line-height:1;font-variant-numeric:tabular-nums}
+.e-unit{font-size:clamp(.75rem,1.5vw,.95rem);font-weight:700;color:var(--purple);margin-left:4px}
+.e-sub{font-size:.58rem;font-weight:600;color:rgba(176,106,255,.45);margin-top:6px}
+
+/* CHART TABS */
+.chart-tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{font-size:.58rem;font-weight:700;padding:4px 12px;border-radius:6px;cursor:pointer;
+  border:1px solid rgba(0,255,200,.2);color:rgba(0,255,200,.45);background:transparent;
+  transition:all .25s;letter-spacing:.05em;text-transform:uppercase}
+.tab.active{background:rgba(0,255,200,.12);border-color:rgba(0,255,200,.45);color:var(--teal)}
+
+/* BAR ROWS */
+.mini-bar-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+.mb-title{font-size:.6rem;font-weight:700;letter-spacing:.07em;color:rgba(0,255,200,.42);
+  text-transform:uppercase;margin-bottom:8px}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.bar-label{font-size:.58rem;font-weight:700;color:rgba(255,255,255,.55);width:90px;flex-shrink:0;text-align:right}
+.bar-track{flex:1;height:14px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden;position:relative}
+.bar-fill{height:100%;border-radius:4px;transition:width .9s ease,background .4s}
+.bar-val{font-size:.6rem;font-weight:800;color:#fff;width:60px;flex-shrink:0;
+  text-align:left;font-variant-numeric:tabular-nums}
+
+/* GRIDS */
+.row1{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.row2{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.row3{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row4{display:grid;grid-template-columns:180px 1fr;gap:10px}
+
+/* CHART CARD */
+.chart-card{display:flex;flex-direction:column;min-height:0}
+.chart-inner{padding:12px 14px;display:flex;flex-direction:column;flex:1;min-height:200px}
+.chdr{display:flex;justify-content:space-between;align-items:flex-start;
+  margin-bottom:7px;flex-wrap:wrap;gap:6px}
+.ctitle{font-size:.62rem;font-weight:700;letter-spacing:.06em;color:rgba(0,255,200,.42);text-transform:uppercase}
+.legend{display:flex;gap:12px;flex-wrap:wrap}
+.leg{display:flex;align-items:center;gap:4px;font-size:.58rem;font-weight:700;color:rgba(0,255,200,.48)}
+.ll{width:13px;height:2px;border-radius:1px}
+.cw{flex:1;min-height:0;position:relative}
+
+/* STATS */
+.stats-inner{padding:12px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:center}
+.slbl{font-size:.55rem;font-weight:700;letter-spacing:.07em;color:rgba(0,255,200,.38);text-transform:uppercase;margin-bottom:2px}
+.sval{font-size:.88rem;font-weight:800;color:#fff;font-variant-numeric:tabular-nums;transition:color .4s}
+
+footer{border-top:1px solid var(--borderl);padding-top:7px;text-align:center}
+.ft{font-size:.52rem;font-weight:600;color:rgba(0,255,200,.2);letter-spacing:.05em}
+#toast{position:fixed;top:78px;left:50%;transform:translateX(-50%) translateY(-14px);z-index:190;
+  opacity:0;transition:all .4s;pointer-events:none;background:rgba(255,77,77,.12);
+  border:1px solid rgba(255,77,77,.45);border-radius:8px;padding:7px 22px;
+  font-size:.66rem;font-weight:700;color:#ff9090;letter-spacing:.05em;
+  backdrop-filter:blur(10px);white-space:nowrap}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media(max-width:1100px){.row1{grid-template-columns:1fr 1fr}.row2{grid-template-columns:1fr 1fr}}
+@media(max-width:640px){
+  .page{padding:10px 10px 14px;gap:8px}
+  header{flex-direction:column;align-items:flex-start}
+  .hr{width:100%;justify-content:space-between}
+  .row1,.row2,.row3,.row4{grid-template-columns:1fr 1fr}
+  .row4{grid-template-columns:1fr}
+}
+@media(max-width:420px){.row1,.row2,.row3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="toast">&#9888;&nbsp; PLC CONNECTION LOST &mdash; RETRYING</div>
+<div class="page">
+
+  <header>
+    <div class="hl">
+      <img class="logo-img" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wgARCAH0AfQDASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAAAAQFAgMGAf/EABkBAQADAQEAAAAAAAAAAAAAAAABAgMEBf/aAAwDAQACEAMQAAACvwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFdIiZImAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHntfFqvX7UV375Gk35gAAAAAAAAAAAAAAAAAAAAAAAAAAAAPOfsKzLuwp7innK26ngO105pQAAAAAAAAAAAAAAAAAAAAAAAAAAAGOVdF6/Aw9PCnuKfTiW1S05u/RJYAAAAAAAAAAAAAAAAAAAAAAAAAABjz9hW5dwU6cKe4p9OENOa16rgO0JYAAAAAAAAAAAAAAAAAAAAAAAAAGGdZW8DEx9Mekrnu1pNvNoBbNaVY79DmAAAAAAAAAAAAAAAAAAAAAAAAAGFBOr8u8KdCfCv7c+era24OCxuqUAs+s4DsiaAAAAAAAAAAAAAAAAAAAAAAABr2VVdIPhj6QyJ9lCrtOO4383LLDiu4wvzcStKuYWVaO/QpoAAAAAAAAAAAAAAAAAAAAAABroJsHHvCvQ98IGw1rCLNNUyETfxKydfkoYfd1d+ap67hurlOAAAAAAAAAAAAAAAAAAAAAA1baiukPwx9IEvd9rbGFZZNOELU0xLFW9Ho6PXXooZ+yHXS1iV8++FkxyvzgAAAAAAAAAAAAAAAAAAAAaaKXDx9ATI1i2czPTiC/OAAAABhEnItU75+Mae+x905ZCYAAAAAAAAAAAAAAAAAAad1RXSHsm2NOmNKNOMJgAAAAAAAAAAAAAAAAAAAAAAAAAAQiajZG7XpRMtXxZi6UtoblLLJ6s0F0qBbqWSWKIJaNJCLKiSHjF5yJgTkKVNcxNQAAAAAAAAAAAAAAAHK3FCSbbm70g+Rd5cV1lRHRc9ZVZ0VJ01ES6S+pDo+Y7Djy7xZFd5F3nU+hTXNNc06NVTd0ybSquqcsK25pYm7GnKAAAAAAAAAAAAAAABTW+Qi1l6K5YimkWIQpo5mVeBR3gc70Q5uTdiuWIgTwrPLRTbRHnpoqbYVcyQSFswAAAAAAAAAAAAAAAAAAAI27RvNO/RuMfdew2RJcMlx5Ec2e4+mOeGYwz8PfMMzLPVtAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/9oADAMBAAIAAwAAACHzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzfzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz3DTzzzzzzzzzzzzzzzzzzzzzzzzzzzzxwPzzzzzzzzzzzzzzzzzzzzzzzzzzzzzh8MTzzzzzzzzzzzzzzzzzzzzzzzzzzzxXwMBjzzzzzzzzzzzzzzzzzzzzzzzzzzv308ADzzzzzzzzzzzzzzzzzzzzzzzzzwTzLwADTzzzzzzzzzzzzzzzzzzzzzzzz731/3YhDTzzzzzzzzzzzzzzzzzzzzzzx/z3rN3ufjzzzzzzzzzzzzzzzzzzzzzz93yB/y8gf3zzzzzzzzzzzzzzzzzzzzzy7yVzzzzzz1z3zzzzzzzzzzzzzzzzzzylF/zzzzzzzzzzzzzzzzzzzzzzzzzzzjy7TzDzTzzT/LLHzzzzzzzzzzzzzzzzyjCDCRgAgiDTzyC7zzzzzzzzzzzzzzzzwyywyyzyzyzw+/8/wA88888888888888888888UkYo4M00I0888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888/9oADAMBAAIAAwAAABDzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzTzzzzzzzzzzzzzzzzzzzzzzzzzzzzzy2HTzzzzzzzzzzzzzzzzzzzzzzzzzzzzx4PjzzzzzzzzzzzzzzzzzzzzzzzzzzzznwMDzzzzzzzzzzzzzzzzzzzzzzzzzzzzT4MBDzzzzzzzzzzzzzzzzzzzzzzzzzz57ugBTTzzzzzzzzzzzzzzzzzzzzzzzzzz6OyABzzzzzzzzzzzzzzzzzzzzzzzzzr/AOo7WME088888888888888888888888m+v8AdDV6/PPPPPPPPPPPPPPPPPPPPPPLP/pj/PzgtPfPPPPPPPPPPPPPPPPPPPPLPNvPPPPPHfU/PPPPPPPPPPPPPPPPPPOx/fPPPPPPPPPPPPPPPPPPPPPPPPPPOPBPONPMONPNccdf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" alt="Akfotek"/>
+      <div class="title-block">
+        <h1>Power Quality &amp; <span>Energy</span> Monitoring System</h1>
+        <p>Akfotek Ltd Engineering &nbsp;&middot;&nbsp; Real-Time PLC Dashboard</p>
+      </div>
+    </div>
+    <div class="hr">
+      <div><div class="clk" id="clock">--:--:--</div><div class="dt" id="date">--</div><div class="ts-ln" id="ts">--</div></div>
+      <a href="/analytics" class="nav-a">&#9776; Analytics</a>
+      <div class="pill connecting" id="pill"><span class="pdot"></span><span id="ptxt">Connecting</span></div>
+    </div>
+  </header>
+
+  <!-- ROW 1: Current · Voltage · Active Power · Power Factor -->
+  <div class="sec-lbl">Electrical Parameters</div>
+  <div class="row1">
+
+    <div class="card gauge-card" id="card-cur">
+      <div class="var-tag">Current_Avg</div>
+      <svg class="gsvg" viewBox="0 0 200 178">
+        <defs><filter id="gl"><feGaussianBlur stdDeviation="4" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+        <circle cx="100" cy="105" r="70" fill="none" stroke="rgba(255,255,255,.06)"
+          stroke-width="12" stroke-dasharray="330 110" stroke-dashoffset="-165" stroke-linecap="round"/>
+        <circle id="g-cur" cx="100" cy="105" r="70" fill="none" stroke="#00ffc8"
+          stroke-width="12" stroke-dasharray="0 440" stroke-dashoffset="-165"
+          stroke-linecap="round" filter="url(#gl)" style="transition:stroke-dasharray 1s ease,stroke .5s"/>
+        <circle cx="100" cy="105" r="56" fill="rgba(2,14,28,.92)"/>
+        <text id="v-cur" x="100" y="100" text-anchor="middle"
+          style="font-family:'Inter';font-size:26px;font-weight:900;fill:#fff">--</text>
+        <text x="100" y="118" text-anchor="middle"
+          style="font-family:'Inter';font-size:11px;font-weight:700;fill:#00ffc8;opacity:.7;letter-spacing:2px">AMPS</text>
+      </svg>
+      <div class="g-lbl">Current &ndash; Avg</div>
+      <div class="g-st" id="st-cur">&#9679; Waiting</div>
+    </div>
+
+    <div class="card gauge-card" id="card-volt">
+      <div class="var-tag">Voltage_Avg_LN</div>
+      <svg class="gsvg" viewBox="0 0 200 178">
+        <circle cx="100" cy="105" r="70" fill="none" stroke="rgba(255,255,255,.06)"
+          stroke-width="12" stroke-dasharray="330 110" stroke-dashoffset="-165" stroke-linecap="round"/>
+        <circle id="g-volt" cx="100" cy="105" r="70" fill="none" stroke="#00ffc8"
+          stroke-width="12" stroke-dasharray="0 440" stroke-dashoffset="-165"
+          stroke-linecap="round" filter="url(#gl)" style="transition:stroke-dasharray 1s ease,stroke .5s"/>
+        <circle cx="100" cy="105" r="56" fill="rgba(2,14,28,.92)"/>
+        <text id="v-volt" x="100" y="100" text-anchor="middle"
+          style="font-family:'Inter';font-size:26px;font-weight:900;fill:#fff">--</text>
+        <text x="100" y="118" text-anchor="middle"
+          style="font-family:'Inter';font-size:11px;font-weight:700;fill:#00ffc8;opacity:.7;letter-spacing:2px">VOLTS</text>
+      </svg>
+      <div class="g-lbl">Voltage Avg L&ndash;N</div>
+      <div class="g-st" id="st-volt">&#9679; Waiting</div>
+    </div>
+
+    <div class="card stat-card" id="card-pwr">
+      <div class="var-tag">Active_Power_Total</div>
+      <div class="st-lbl">Active Power Total</div>
+      <div><span class="st-val" id="v-pwr">--</span><span class="st-unit">kW</span></div>
+      <div class="st-status" id="st-pwr">&#9679; Waiting</div>
+      <div class="pwr-wrap">
+        <div class="pwr-track">
+          <div class="pwr-fill" id="pwr-bar"></div>
+          <div class="pwr-marker" style="left:70%"></div>
+          <div class="pwr-marker" style="left:90%"></div>
+        </div>
+        <div class="pwr-zones">
+          <span class="pwr-z">0</span>
+          <span class="pwr-z">Normal &lt;70kW</span>
+          <span class="pwr-z">Warn &lt;90kW</span>
+          <span class="pwr-z">100kW</span>
+        </div>
+        <span class="pwr-badge ok" id="pwr-badge">Normal</span>
+      </div>
+    </div>
+
+    <div class="card stat-card" id="card-pf">
+      <div class="var-tag">Power_Factor_Total</div>
+      <div class="st-lbl">Power Factor Total</div>
+      <div><span class="st-val" id="v-pf">--</span></div>
+      <div class="st-status" id="st-pf">&#9679; Waiting</div>
+      <div class="pf-bar-wrap">
+        <div class="pf-scale"><span>0.00</span><span>0.85</span><span>1.00</span></div>
+        <div class="pf-track">
+          <div class="pf-fill" id="pf-fill"></div>
+          <div style="position:absolute;top:0;bottom:0;left:85%;width:1.5px;background:rgba(255,255,255,.3)"></div>
+        </div>
+        <div class="pf-note">Target &ge; 0.85 &nbsp;|&nbsp; Unity = 1.00</div>
+      </div>
+      <span class="pf-badge ok" id="pf-badge" style="margin-top:8px">Waiting</span>
+    </div>
+
+  </div>
+
+  <!-- ROW 2: Frequency · THD · Energy · (spacer) -->
+  <div class="sec-lbl" style="margin-top:2px">Power Quality &amp; Energy</div>
+  <div class="row2">
+
+    <div class="card stat-card" id="card-freq">
+      <div class="var-tag">Frequency</div>
+      <div class="st-lbl">Frequency</div>
+      <div><span class="st-val" id="v-freq">--</span><span class="st-unit">Hz</span></div>
+      <div class="st-status" id="st-freq">&#9679; Waiting</div>
+      <div class="freq-wrap">
+        <div class="fscale"><span>49.5</span><span>49.75</span><span>50.0</span><span>50.25</span><span>50.5</span></div>
+        <div class="ftrack"><div class="ffill"></div><div class="fcen"></div><div class="fneedle" id="fn"></div></div>
+        <div class="fdev" id="fdv">&Delta; -- Hz</div>
+      </div>
+    </div>
+
+    <div class="card stat-card" id="card-thd">
+      <div class="var-tag">THD_Voltage_Avg_LN</div>
+      <div class="st-lbl">THD Voltage Avg L&ndash;N</div>
+      <div><span class="st-val" id="v-thd">--</span><span class="st-unit">%</span></div>
+      <div class="thd-wrap">
+        <span class="thd-lbl">Harmonic Distortion (0 &ndash; 10%)</span>
+        <div class="thd-bg"><div class="thd-fill" id="thd-bar"></div></div>
+        <div class="thd-marks"><span class="thd-mark">0%</span><span class="thd-mark">2%</span>
+          <span class="thd-mark">5%</span><span class="thd-mark">8%</span><span class="thd-mark">10%</span></div>
+        <span class="thd-badge ok" id="thd-badge">Normal</span>
+      </div>
+    </div>
+
+    <div class="card" id="card-energy" style="border-color:rgba(176,106,255,.25)">
+      <div style="position:absolute;top:0;left:8%;right:8%;height:1.5px;
+        background:linear-gradient(90deg,transparent,var(--purple),transparent);opacity:.6"></div>
+      <div class="var-tag" style="color:var(--purple);border-color:rgba(176,106,255,.3);background:rgba(176,106,255,.1)">Active_Energy_Delvd</div>
+      <div class="e-inner">
+        <div class="e-lbl">Active Energy Delivered</div>
+        <div><span class="e-val" id="v-energy">--</span><span class="e-unit">kWh</span></div>
+        <div class="e-sub">Cumulative metered energy</div>
+      </div>
+    </div>
+
+    <!-- mini stats -->
+    <div class="card">
+      <div class="stats-inner">
+        <div><div class="slbl">V Max</div><div class="sval" id="s-vmax">--</div></div>
+        <div><div class="slbl">V Min</div><div class="sval" id="s-vmin">--</div></div>
+        <div><div class="slbl">I Avg</div><div class="sval" id="s-iavg">--</div></div>
+        <div><div class="slbl">Freq Dev</div><div class="sval" id="s-fdev">--</div></div>
+        <div><div class="slbl">Power Factor</div><div class="sval" id="s-pf">--</div></div>
+        <div><div class="slbl">Status</div><div class="sval" id="s-status" style="color:var(--teal)">--</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ROW 3: Instantaneous bar charts -->
+  <div class="sec-lbl" style="margin-top:2px">Instantaneous View</div>
+  <div class="row3">
+    <div class="mini-bar-card">
+      <div class="mb-title">Electrical Readings</div>
+      <div class="bar-row">
+        <span class="bar-label">V Avg L&ndash;N</span>
+        <div class="bar-track"><div class="bar-fill" id="bar-volt" style="background:linear-gradient(90deg,#0090e0,#00ffc8)"></div></div>
+        <span class="bar-val"><span id="bv-volt">--</span> V</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Current Avg</span>
+        <div class="bar-track"><div class="bar-fill" id="bar-cur" style="background:linear-gradient(90deg,#0066cc,#38b8ff)"></div></div>
+        <span class="bar-val"><span id="bv-cur">--</span> A</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Active Power</span>
+        <div class="bar-track"><div class="bar-fill" id="bar-pwr2" style="background:linear-gradient(90deg,#0090e0,#00ffc8)"></div></div>
+        <span class="bar-val"><span id="bv-pwr">--</span> kW</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Power Factor</span>
+        <div class="bar-track"><div class="bar-fill" id="bar-pf2" style="background:linear-gradient(90deg,#ff4d4d,#ffbf3c 50%,#00ffc8)"></div></div>
+        <span class="bar-val"><span id="bv-pf">--</span></span>
+      </div>
+    </div>
+    <div class="mini-bar-card">
+      <div class="mb-title">Power Quality Indicators</div>
+      <div class="bar-row">
+        <span class="bar-label">Frequency</span>
+        <div class="bar-track">
+          <div class="bar-fill" id="bar-freq2" style="background:linear-gradient(90deg,#0090e0,#00ffc8)"></div>
+          <div style="position:absolute;top:0;bottom:0;left:50%;width:1.5px;background:rgba(255,255,255,.22)"></div>
+        </div>
+        <span class="bar-val"><span id="bv-freq">--</span> Hz</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">THD V Avg LN</span>
+        <div class="bar-track"><div class="bar-fill" id="bar-thd2" style="background:linear-gradient(90deg,#0090e0,#00ffc8)"></div></div>
+        <span class="bar-val"><span id="bv-thd">--</span> %</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Energy Delvd</span>
+        <div class="bar-track"><div class="bar-fill" id="bar-nrg" style="background:linear-gradient(90deg,#6600cc,#b06aff)"></div></div>
+        <span class="bar-val"><span id="bv-nrg">--</span> kWh</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">Load %</span>
+        <div class="bar-track"><div class="bar-fill" id="bar-load" style="background:linear-gradient(90deg,#0090e0,#00ffc8)"></div></div>
+        <span class="bar-val"><span id="bv-load">--</span> %</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 4: Trend chart -->
+  <div class="sec-lbl" style="margin-top:2px">Live Trends &middot; Rolling 60s</div>
+  <div class="card chart-card">
+    <div class="chart-inner">
+      <div class="chdr">
+        <div class="chart-tabs">
+          <button class="tab active" onclick="setTab('vp',this)">Voltage &amp; Power</button>
+          <button class="tab" onclick="setTab('cf',this)">Current &amp; PF</button>
+          <button class="tab" onclick="setTab('ft',this)">Freq &amp; THD</button>
+        </div>
+        <div class="legend">
+          <div class="leg"><div class="ll" id="ll1" style="background:#00ffc8"></div><span id="lg1">V Avg L-N</span></div>
+          <div class="leg"><div class="ll" id="ll2" style="background:#38b8ff;border-top:2px dashed #38b8ff;height:0"></div><span id="lg2">Active Power</span></div>
+        </div>
+      </div>
+      <div class="cw"><canvas id="trend-chart"></canvas></div>
+    </div>
+  </div>
+
+  <footer><div class="ft">Akfotek Ltd Engineering &nbsp;&middot;&nbsp; Power Quality &amp; Energy Monitoring System</div></footer>
+</div>
+
+<script>
+const API=window.location.origin+'/api/meter';
+const NP=45, MAX_KW=100, WARN_KW=70, FAULT_KW=90;
+const CIR=440, ARC=330, MAX_A=400, MAX_V=500;
+let tChart=null, tMode='vp';
+const buf={volt:[],cur:[],pwr:[],pf:[],freq:[],thd:[]};
+let vMax=-Infinity, vMin=Infinity;
+
+function tickClock(){
+  const n=new Date();
+  document.getElementById('clock').textContent=n.toLocaleTimeString('en-GB');
+  document.getElementById('date').textContent=n.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
+}
+tickClock();setInterval(tickClock,1000);
+
+function pushBuf(k,v){buf[k].push(v);if(buf[k].length>NP)buf[k].shift();}
+
+const TAB_CFG={
+  vp:{d:['volt','pwr'],c:['#00ffc8','#38b8ff'],dash:[false,[6,3]],
+       lbl:['V Avg L-N (V)','Active Power (kW)'],
+       y1:{min:180,max:300},y2:{min:0,max:MAX_KW},leg:['V Avg L-N','Active Power']},
+  cf:{d:['cur','pf'], c:['#38b8ff','#b06aff'],dash:[false,[4,3]],
+       lbl:['Current Avg (A)','Power Factor'],
+       y1:{min:0,max:500},y2:{min:0,max:1.1},leg:['Current Avg','Power Factor']},
+  ft:{d:['freq','thd'],c:['#00ffc8','#ff4d4d'],dash:[false,[4,3]],
+       lbl:['Frequency (Hz)','THD (%)'],
+       y1:{min:49.0,max:51.0},y2:{min:0,max:12},leg:['Frequency','THD']}
+};
+
+function initTrend(){
+  tChart=new Chart(document.getElementById('trend-chart').getContext('2d'),{
+    type:'line',
+    data:{labels:Array(NP).fill(''),datasets:[
+      {data:Array(NP).fill(null),borderColor:'#00ffc8',borderWidth:2.5,pointRadius:0,tension:.4,fill:false,yAxisID:'y1',label:'y1'},
+      {data:Array(NP).fill(null),borderColor:'#38b8ff',borderWidth:2,pointRadius:0,tension:.4,fill:false,borderDash:[6,3],yAxisID:'y2',label:'y2'}
+    ]},
+    options:{animation:false,responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{enabled:true,mode:'index',intersect:false,
+        backgroundColor:'rgba(2,20,40,.92)',borderColor:'rgba(0,255,200,.3)',borderWidth:1,
+        titleFont:{family:"'Inter'",weight:'700',size:11},bodyFont:{family:"'Inter'",weight:'600',size:11},
+        titleColor:'#00ffc8',bodyColor:'#fff',
+        callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.parsed.y!=null?ctx.parsed.y.toFixed(2):'--'}`}
+      }},
+      scales:{x:{display:false},
+        y1:{min:180,max:300,position:'left',grid:{color:'rgba(0,255,200,.06)',lineWidth:.5},border:{display:false},ticks:{color:'rgba(0,255,200,.35)',font:{size:10,family:"'Inter'",weight:'700'},maxTicksLimit:5}},
+        y2:{min:0,max:MAX_KW,position:'right',grid:{drawOnChartArea:false},border:{display:false},ticks:{color:'rgba(56,184,255,.45)',font:{size:10,family:"'Inter'",weight:'700'},maxTicksLimit:5}}
+      }
+    }
+  });
+}
+
+function setTab(mode, btn){
+  tMode=mode;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  applyTab();
+}
+function applyTab(){
+  const c=TAB_CFG[tMode];
+  if(!tChart)return;
+  tChart.data.datasets[0].data=[...buf[c.d[0]]];
+  tChart.data.datasets[1].data=[...buf[c.d[1]]];
+  tChart.data.datasets[0].borderColor=c.c[0];
+  tChart.data.datasets[1].borderColor=c.c[1];
+  tChart.data.datasets[0].borderDash=c.dash[0]||[];
+  tChart.data.datasets[1].borderDash=c.dash[1]||[];
+  tChart.data.datasets[0].label=c.lbl[0];
+  tChart.data.datasets[1].label=c.lbl[1];
+  tChart.data.labels=Array(buf[c.d[0]].length).fill('');
+  Object.assign(tChart.options.scales.y1,c.y1);
+  Object.assign(tChart.options.scales.y2,c.y2);
+  document.getElementById('lg1').textContent=c.leg[0];
+  document.getElementById('lg2').textContent=c.leg[1];
+  document.getElementById('ll1').style.background=c.c[0];
+  document.getElementById('ll2').style.background=c.c[1];
+  tChart.update('none');
+}
+
+function setGauge(arcId,valId,stId,cardId,v,max){
+  const clr=v>max*.95?'#ff4d4d':v>max*.8?'#ffbf3c':'#00ffc8';
+  const f=Math.max(0,Math.min(1,v/max))*ARC;
+  document.getElementById(arcId).setAttribute('stroke-dasharray',f.toFixed(2)+' '+(CIR-f).toFixed(2));
+  document.getElementById(arcId).setAttribute('stroke',clr);
+  document.getElementById(valId).textContent=v.toFixed(1);
+  const s=document.getElementById(stId),c=document.getElementById(cardId);
+  if(v>max*.95){s.textContent='⚠ High';s.style.color='#ff4d4d';c.className='card gauge-card fault';}
+  else if(v>max*.8){s.textContent='⚠ Warning';s.style.color='#ffbf3c';c.className='card gauge-card warn';}
+  else{s.textContent='● Normal';s.style.color='#00ffc8';c.className='card gauge-card';}
+}
+
+function setPower(v){
+  document.getElementById('v-pwr').textContent=v.toFixed(2);
+  const pct=Math.max(0,Math.min(100,(v/MAX_KW)*100));
+  const bar=document.getElementById('pwr-bar'),badge=document.getElementById('pwr-badge');
+  const card=document.getElementById('card-pwr'),st=document.getElementById('st-pwr');
+  bar.style.width=pct+'%';
+  if(v>=FAULT_KW){bar.style.background='linear-gradient(90deg,#0090e0,#ffbf3c,#ff4d4d)';badge.textContent='High Load';badge.className='pwr-badge fault-b';card.className='card stat-card fault';st.textContent='⚠ High Load';st.style.color='#ff4d4d';}
+  else if(v>=WARN_KW){bar.style.background='linear-gradient(90deg,#0090e0,#ffbf3c)';badge.textContent='Warning';badge.className='pwr-badge warn-b';card.className='card stat-card warn';st.textContent='⚠ Warning';st.style.color='#ffbf3c';}
+  else{bar.style.background='linear-gradient(90deg,#0090e0,#00ffc8)';badge.textContent='Normal';badge.className='pwr-badge ok';card.className='card stat-card';st.textContent='● Normal';st.style.color='#00ffc8';}
+}
+
+function setPF(v){
+  const val=Math.abs(v);
+  document.getElementById('v-pf').textContent=val.toFixed(3);
+  document.getElementById('pf-fill').style.width=Math.max(0,Math.min(100,val*100))+'%';
+  const st=document.getElementById('st-pf'),card=document.getElementById('card-pf'),badge=document.getElementById('pf-badge');
+  if(val<0.7){st.textContent='⚠ Poor PF';st.style.color='#ff4d4d';card.className='card stat-card fault';badge.textContent='Poor';badge.className='pf-badge fault-b';}
+  else if(val<0.85){st.textContent='⚠ Low PF';st.style.color='#ffbf3c';card.className='card stat-card warn';badge.textContent='Low';badge.className='pf-badge warn-b';}
+  else{st.textContent='● Good PF';st.style.color='#00ffc8';card.className='card stat-card';badge.textContent='Good';badge.className='pf-badge ok';}
+  document.getElementById('s-pf').textContent=val.toFixed(3);
+}
+
+function setFreq(v){
+  document.getElementById('v-freq').textContent=v.toFixed(3);
+  const pct=Math.max(0,Math.min(100,(v-49.5)*100)),dev=v-50;
+  const clr=Math.abs(dev)>.3?'#ff4d4d':Math.abs(dev)>.1?'#ffbf3c':'#00ffc8';
+  const fn=document.getElementById('fn');
+  fn.style.left=pct+'%';fn.style.background=clr;fn.style.boxShadow='0 0 10px '+clr;
+  document.getElementById('fdv').textContent='Δ '+(dev>=0?'+':'')+dev.toFixed(3)+' Hz';
+  const st=document.getElementById('st-freq'),c=document.getElementById('card-freq');
+  if(Math.abs(dev)>.3){st.textContent='⚠ Fault';st.style.color='#ff4d4d';c.className='card stat-card fault';}
+  else if(Math.abs(dev)>.1){st.textContent='⚠ Warning';st.style.color='#ffbf3c';c.className='card stat-card warn';}
+  else{st.textContent='● Normal';st.style.color='#00ffc8';c.className='card stat-card';}
+  document.getElementById('s-fdev').textContent=(dev>=0?'+':'')+dev.toFixed(3)+' Hz';
+}
+
+function setTHD(v){
+  document.getElementById('v-thd').textContent=v.toFixed(2);
+  const bar=document.getElementById('thd-bar'),badge=document.getElementById('thd-badge'),card=document.getElementById('card-thd');
+  bar.style.width=Math.max(0,Math.min(100,(v/10)*100))+'%';
+  if(v>8){bar.style.background='linear-gradient(90deg,#a32d2d,#ff4d4d)';badge.textContent='Fault';badge.className='thd-badge fault-b';card.className='card stat-card fault';}
+  else if(v>5){bar.style.background='linear-gradient(90deg,#b37800,#ffbf3c)';badge.textContent='Warning';badge.className='thd-badge warn-b';card.className='card stat-card warn';}
+  else{bar.style.background='linear-gradient(90deg,#0090e0,#00ffc8)';badge.textContent='Normal';badge.className='thd-badge ok';card.className='card stat-card';}
+}
+
+function setBar(fillId,pct,valId,val){
+  document.getElementById(fillId).style.width=Math.max(0,Math.min(100,pct))+'%';
+  document.getElementById(valId).textContent=val;
+}
+
+function render(d){
+  const v=d.values;
+  const volt=v.Voltage_Avg_LN, cur=v.Current_Avg, pwr=v.Active_Power_Total;
+  const pf=v.Power_Factor_Total, freq=v.Frequency, thd=v.THD_Voltage_Avg_LN, nrg=v.Active_Energy_Delvd;
+
+  setGauge('g-cur','v-cur','st-cur','card-cur',cur,MAX_A);
+  setGauge('g-volt','v-volt','st-volt','card-volt',volt,MAX_V);
+  setPower(pwr); setPF(pf); setFreq(freq); setTHD(thd);
+  document.getElementById('v-energy').textContent=nrg.toFixed(1);
+  document.getElementById('ts').textContent='Updated: '+new Date(d.timestamp).toLocaleTimeString('en-GB');
+
+  pushBuf('volt',+volt.toFixed(2)); pushBuf('cur',+cur.toFixed(2));
+  pushBuf('pwr',+pwr.toFixed(2));  pushBuf('pf',+Math.abs(pf).toFixed(3));
+  pushBuf('freq',+freq.toFixed(3)); pushBuf('thd',+thd.toFixed(2));
+  applyTab();
+
+  /* bar charts */
+  setBar('bar-volt',(volt/MAX_V)*100,'bv-volt',volt.toFixed(1));
+  setBar('bar-cur',(cur/MAX_A)*100,'bv-cur',cur.toFixed(1));
+  setBar('bar-pwr2',(pwr/MAX_KW)*100,'bv-pwr',pwr.toFixed(2));
+  setBar('bar-pf2',Math.abs(pf)*100,'bv-pf',Math.abs(pf).toFixed(3));
+  setBar('bar-freq2',((freq-49.5)*100),'bv-freq',freq.toFixed(3));
+  setBar('bar-thd2',(thd/10)*100,'bv-thd',thd.toFixed(2));
+  setBar('bar-nrg',Math.min(100,(nrg/10000)*100),'bv-nrg',nrg.toFixed(1));
+  const lp=(pwr/MAX_KW)*100;
+  const lb=document.getElementById('bar-load');
+  lb.style.width=Math.min(100,lp)+'%';
+  lb.style.background=lp>90?'linear-gradient(90deg,#a32d2d,#ff4d4d)':lp>70?'linear-gradient(90deg,#b37800,#ffbf3c)':'linear-gradient(90deg,#0090e0,#00ffc8)';
+  document.getElementById('bv-load').textContent=lp.toFixed(1);
+
+  /* stats */
+  if(volt>vMax)vMax=volt; if(volt<vMin)vMin=volt;
+  document.getElementById('s-vmax').textContent=isFinite(vMax)?vMax.toFixed(1)+' V':'--';
+  document.getElementById('s-vmin').textContent=isFinite(vMin)?vMin.toFixed(1)+' V':'--';
+  document.getElementById('s-iavg').textContent=cur.toFixed(2)+' A';
+  const ok=volt>=220&&volt<=260&&Math.abs(freq-50)<.5&&thd<=8&&pwr<FAULT_KW&&Math.abs(pf)>=0.85;
+  const ss=document.getElementById('s-status');
+  ss.textContent=ok?'Normal':'Fault'; ss.style.color=ok?'#00ffc8':'#ff4d4d';
+}
+
+function setOnline(){document.getElementById('pill').className='pill connected';document.getElementById('ptxt').textContent='Connected';document.getElementById('toast').classList.remove('show');}
+function setOffline(){document.getElementById('pill').className='pill offline';document.getElementById('ptxt').textContent='Offline';document.getElementById('toast').classList.add('show');}
+
+async function poll(){
+  try{
+    const res=await fetch(API,{cache:'no-store'});
+    if(!res.ok)throw new Error();
+    const data=await res.json();
+    if(!data.connected)throw new Error();
+    setOnline();render(data);
+  }catch(e){setOffline();}
+}
+
+initTrend();poll();setInterval(poll,1000);
+</script>
+</body>
+</html>

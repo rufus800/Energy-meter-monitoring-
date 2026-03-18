@@ -1,0 +1,18 @@
+[Unit]
+Description=Akfotek Power Quality & Energy Monitoring Dashboard (Port 5002)
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/energy_meter
+ExecStart=/usr/bin/python3 /root/energy_meter/plc_reader.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=energy-meter-pq
+
+[Install]
+WantedBy=multi-user.target

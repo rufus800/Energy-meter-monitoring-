@@ -1,0 +1,34 @@
+# /etc/cloudflared/config.yml
+#
+# IMPORTANT: You already have 2 dashboards configured.
+# Add the NEW entry to your EXISTING config — do NOT replace it.
+# Your existing config likely looks similar to this.
+# Add the new hostname block shown below marked with "ADD THIS".
+#
+# ─────────────────────────────────────────────────────────
+# Example of what your existing config.yml might look like:
+# ─────────────────────────────────────────────────────────
+#
+# tunnel: YOUR_TUNNEL_ID
+# credentials-file: /etc/cloudflared/YOUR_TUNNEL_ID.json
+#
+# ingress:
+#   - hostname: dashboard1.yourdomain.com   # existing
+#     service: http://localhost:5000
+#
+#   - hostname: dashboard2.yourdomain.com   # existing
+#     service: http://localhost:5001
+#
+#   ── ADD THIS BLOCK ──────────────────────────────────────
+#   - hostname: energy.yourdomain.com       # NEW
+#     service: http://localhost:5002
+#   ────────────────────────────────────────────────────────
+#
+#   - service: http_status:404              # always keep this last
+#
+# ─────────────────────────────────────────────────────────
+# After editing config.yml, run:
+#   systemctl restart cloudflared
+# Then add the DNS route:
+#   cloudflared tunnel route dns <your-tunnel-name> energy.yourdomain.com
+# ─────────────────────────────────────────────────────────
