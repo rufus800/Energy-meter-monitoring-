@@ -15,7 +15,7 @@ from flask import Flask, jsonify, send_from_directory, request, Response, stream
 from flask_cors import CORS
 
 # ── OpenRouter API key for the AI chatbot ──────────────────
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "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"
 OPENROUTER_URL     = "https://openrouter.ai/api/v1/chat/completions"
 CHAT_MODEL         = "anthropic/claude-3.5-haiku"
 
