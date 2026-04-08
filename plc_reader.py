@@ -285,14 +285,16 @@ Be concise and professional. Use markdown links [text](url) when referencing pag
         def generate():
             try:
                 with requests.post(OPENROUTER_URL, headers=headers,
-                                   json=payload, stream=True, timeout=60) as r:
-                    for raw in r.iter_lines():
-                        if not raw:
+                                   json=payload, stream=True, timeout=30) as r:
+                    if r.status_code != 200:
+                        err = r.text[:300].strip()
+                        yield f"data: {json.dumps({'text': f'API error ({r.status_code}): {err}'})}\n\n"
+                        yield "data: [DONE]\n\n"
+                        return
+                    for line in r.iter_lines(decode_unicode=True):
+                        if not line or not line.startswith("data: "):
                             continue
-                        line = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-                        if not line.startswith("data: "):
-                            continue
-                        chunk = line[6:]
+                        chunk = line[6:].strip()
                         if chunk == "[DONE]":
                             break
                         try:
@@ -304,13 +306,18 @@ Be concise and professional. Use markdown links [text](url) when referencing pag
                             pass
                 yield "data: [DONE]\n\n"
             except Exception as exc:
-                yield f"data: {json.dumps({'text': f'Error: {exc}'})}\n\n"
+                yield f"data: {json.dumps({'text': f'Connection error: {exc}'})}\n\n"
                 yield "data: [DONE]\n\n"
 
         return Response(
             stream_with_context(generate()),
             mimetype="text/event-stream",
-            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache", "Connection": "keep-alive"}
+            headers={
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Content-Type-Options": "nosniff"
+            }
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -324,4 +331,4 @@ if __name__ == "__main__":
     print(f"  PLC        ->  {PLC_IP}  DB{DB_NUMBER}")
     print("  Stop       ->  Ctrl+C")
     print("="*55)
-    app.run(host="0.0.0.0", port=APP_PORT, debug=False, use_reloader=False)
+    app.run(host="0.0.0.0", port=APP_PORT, debug=False, use_reloader=False, threaded=True)

@@ -264,6 +264,26 @@ footer{border-top:1px solid var(--borderl);padding-top:7px;text-align:center}
 #chat-btn.bot-thinking{animation:bot-pulse-think .72s ease-in-out infinite}
 @keyframes bot-pulse-type{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
 @keyframes bot-pulse-think{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+/* ── Bot greeting popup ── */
+#bot-popup{position:fixed;bottom:108px;right:16px;z-index:303;
+  max-width:200px;cursor:pointer;
+  background:rgba(2,12,26,.97);border:1px solid rgba(0,255,200,.22);
+  border-radius:14px;padding:11px 34px 11px 14px;
+  font-size:.68rem;font-weight:600;color:rgba(255,255,255,.88);line-height:1.55;
+  box-shadow:0 8px 32px rgba(0,0,0,.55),0 0 0 1px rgba(0,255,200,.06);
+  opacity:0;transform:translateY(10px) scale(.9);transform-origin:bottom right;
+  transition:opacity .32s,transform .38s cubic-bezier(.34,1.56,.64,1);
+  pointer-events:none}
+#bot-popup.show{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
+#bot-popup::after{content:'';position:absolute;bottom:-7px;right:29px;
+  width:13px;height:13px;
+  background:rgba(2,12,26,.97);
+  border-right:1px solid rgba(0,255,200,.22);border-bottom:1px solid rgba(0,255,200,.22);
+  transform:rotate(45deg)}
+#bot-popup-close{position:absolute;top:7px;right:8px;background:none;border:none;
+  color:rgba(0,255,200,.35);cursor:pointer;font-size:.72rem;
+  padding:2px 5px;border-radius:4px;transition:color .15s;line-height:1}
+#bot-popup-close:hover{color:var(--teal)}
 /* ── Bot thought-bubble indicator (top-right corner of bot button) ── */
 #bot-bubble{position:fixed;bottom:76px;right:8px;z-index:302;pointer-events:none;
   width:36px;height:20px;border-radius:10px;
@@ -536,6 +556,10 @@ footer{border-top:1px solid var(--borderl);padding-top:7px;text-align:center}
   <footer><div class="ft"><strong style="color:#ff4d4d">Akfotek Engineering Ltd</strong> &nbsp;&middot;&nbsp; Power Quality &amp; Energy Monitoring: Cost &amp; Efficiency Improvement System &nbsp;&middot;&nbsp; <a href="mailto:support@akfotekengineering.com" style="color:rgba(0,255,200,.4);text-decoration:none">support@akfotekengineering.com</a> &nbsp;&middot;&nbsp; <a href="mailto:info@akfotekengineering.com" style="color:rgba(0,255,200,.4);text-decoration:none">info@akfotekengineering.com</a></div></footer>
 </div>
 
+<div id="bot-popup" onclick="_popupOpen()" role="complementary" aria-label="AI greeting">
+  <button id="bot-popup-close" onclick="event.stopPropagation();_popupDismiss()" aria-label="Dismiss">&#x2715;</button>
+  Hello! How can I assist you today?
+</div>
 <div id="bot-bubble" role="status" aria-live="polite"><span class="bb"></span><span class="bb"></span><span class="bb"></span></div>
 <!-- CHATBOT BUTTON -->
 <button id="chat-btn" onclick="toggleChat()" aria-label="Open AI Assistant">
@@ -775,6 +799,21 @@ async function poll(){
 
 initTrend();poll();setInterval(poll,1000);
 
+/* ── Greeting popup ── */
+let _popupTimer=null;
+function _popupDismiss(){
+  clearTimeout(_popupTimer);
+  document.getElementById('bot-popup').classList.remove('show');
+}
+function _popupOpen(){
+  _popupDismiss();
+  if(!_chatOpen) toggleChat();
+}
+setTimeout(()=>{
+  document.getElementById('bot-popup').classList.add('show');
+  _popupTimer=setTimeout(_popupDismiss,5000);
+},1800);
+
 /* =========================================================
    CHATBOT
    ========================================================= */
@@ -807,8 +846,7 @@ function toggleChat(){
         _chatRemoveTyping();
         const greet='Hello! How can I help you today?\n\nI can explain your live readings, diagnose power quality issues, guide you to the [Analytics](/analytics) page for historical trends, or connect you with [Akfotek support](mailto:support@akfotekengineering.com).';
         _chatAppend('ai',greet);
-        _chatHistory.push({role:'assistant',content:greet});
-        _chatShowChips();
+        _chatShowChips(); // greeting is UI-only; not pushed to history to keep API messages user-first
       },1100);
     }
   }
@@ -934,12 +972,18 @@ async function chatSend(){
   if(!txt) return;
   inp.value='';inp.style.height='auto';
   clearTimeout(_typingTimer);
+
+  // Remove suggestion chips when user sends a message
+  const ch=document.getElementById('chat-chips');if(ch)ch.remove();
+
   _chatBusy=true;
   _botSetState('thinking');
   document.getElementById('chat-send').disabled=true;
 
   _chatAppend('user',txt);
   _chatHistory.push({role:'user',content:txt});
+  // Cap history to last 20 messages to avoid token overflow
+  if(_chatHistory.length>20)_chatHistory.splice(0,_chatHistory.length-20);
   _chatAddTyping();
 
   const aiDiv=document.createElement('div');
@@ -955,32 +999,41 @@ async function chatSend(){
     _chatRemoveTyping();
     document.getElementById('chat-msgs').appendChild(aiDiv);
 
+    if(!res.ok){
+      aiDiv.innerHTML=`&#9888; Server error (${res.status}). Please try again.`;
+      throw new Error(`HTTP ${res.status}`);
+    }
+
     const reader=res.body.getReader();
     const dec=new TextDecoder();
-    let buf='';
-    while(true){
+    let buf='',isDone=false;
+    while(!isDone){
       const {done,value}=await reader.read();
       if(done)break;
       buf+=dec.decode(value,{stream:true});
       const lines=buf.split('\n');buf=lines.pop();
       for(const ln of lines){
-        if(!ln.startsWith('data: '))continue;
-        const d=ln.slice(6);
-        if(d==='[DONE]')break;
-        try{const p=JSON.parse(d);if(p.text){fullText+=p.text;aiDiv.innerHTML=_chatFmt(fullText);}}catch{}
-        document.getElementById('chat-msgs').scrollTop=99999;
+        const s=ln.trim();
+        if(!s.startsWith('data:'))continue;
+        const d=s.slice(5).trim();
+        if(d==='[DONE]'){isDone=true;break;}
+        try{
+          const p=JSON.parse(d);
+          if(p.text){fullText+=p.text;aiDiv.innerHTML=_chatFmt(fullText);document.getElementById('chat-msgs').scrollTop=99999;}
+        }catch{}
       }
     }
-    _chatHistory.push({role:'assistant',content:fullText});
+    if(fullText) _chatHistory.push({role:'assistant',content:fullText});
+    else if(!aiDiv.innerHTML) aiDiv.innerHTML='&#9888; No response received. Please try again.';
   }catch(e){
     _chatRemoveTyping();
-    document.getElementById('chat-msgs').appendChild(aiDiv);
-    aiDiv.innerHTML='&#9888; Could not reach the AI. Check that <code>ANTHROPIC_API_KEY</code> is set and the server is running.';
+    if(!document.getElementById('chat-msgs').contains(aiDiv))document.getElementById('chat-msgs').appendChild(aiDiv);
+    if(!aiDiv.innerHTML)aiDiv.innerHTML='&#9888; Could not reach the AI assistant. Please check your connection and try again.';
   }
   _chatBusy=false;
   _botSetState(null);
   document.getElementById('chat-send').disabled=false;
-  document.getElementById('chat-input').focus();
+  inp.focus();
 }
 </script>
 </body>
