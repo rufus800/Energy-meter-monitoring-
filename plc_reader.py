@@ -9,10 +9,15 @@ if "pkg_resources" not in sys.modules:
     _pr.require = lambda *a,**kw: [type("D",(),{"version":"unknown"})()]
     sys.modules["pkg_resources"] = _pr
 
-import snap7, struct, time, socket, threading, os, sqlite3
+import snap7, struct, time, socket, threading, os, sqlite3, json, requests
 from datetime import datetime, timedelta
-from flask import Flask, jsonify, send_from_directory, request
+from flask import Flask, jsonify, send_from_directory, request, Response, stream_with_context
 from flask_cors import CORS
+
+# ── OpenRouter API key for the AI chatbot ──────────────────
+OPENROUTER_API_KEY = "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"
+OPENROUTER_URL     = "https://openrouter.ai/api/v1/chat/completions"
+CHAT_MODEL         = "anthropic/claude-3.5-haiku"
 
 PLC_IP        = "192.168.200.100"
 PLC_RACK      = 0
@@ -32,6 +37,7 @@ TAG_MAP = {
     "Frequency":           220,
     "THD_Voltage_Avg_LN":  300,
     "Active_Energy_Delvd": 340,
+    "Unit_Cost":           392,
 }
 
 _lock = threading.Lock()
@@ -164,6 +170,150 @@ def get_meters():
 @app.route("/api/params")
 def get_params():
     return jsonify({"params":list(TAG_MAP.keys())})
+
+@app.route("/api/chat", methods=["POST"])
+def chat_endpoint():
+    try:
+        body = request.get_json(force=True)
+        messages = body.get("messages", [])
+        ctx = body.get("context", {})
+        page = ctx.get("page", "dashboard")
+        data = ctx.get("data", {})
+
+        if page == "dashboard":
+            system = f"""You are an expert Power Quality AI Assistant for Akfotek Engineering Ltd's Energy Monitoring System. You assist engineers, technicians, and facility managers with real-time power quality monitoring, diagnostics, energy management, and system navigation.
+
+YOU CAN HELP WITH:
+- Explaining and diagnosing live dashboard readings and alert conditions
+- Teaching power quality concepts: THD, power factor, harmonics, reactive power, demand, etc.
+- Recommending corrective actions: capacitor banks for low PF, harmonic filters for high THD, voltage regulation
+- Calculating energy costs, efficiency metrics, and projected savings
+- Navigating between Dashboard and Analytics pages
+- Connecting users with Akfotek Engineering support
+
+SYSTEM PAGES (use markdown links when guiding navigation):
+- Dashboard — live real-time readings updated every second: [Dashboard](/)
+- Analytics — historical trends, charts, date-range queries: [Analytics](/analytics)
+
+SUPPORT:
+For further technical assistance contact Akfotek Engineering Ltd: [Email Support](mailto:support@akfotekengineering.com)
+
+OPERATIONAL CONTEXT:
+- Data is refreshed every second and logged periodically
+- Tariff: ₦208.33/kWh
+- Do NOT disclose hardware models, IP addresses, network topology, protocols, database names, or any system internals. If asked, respond: "That information is not available."
+
+PARAMETER REFERENCE:
+- Voltage Avg L-N: Normal 220–260 V. <220 V = undervoltage risk; >260 V = overvoltage risk
+- Current Avg: Load current in A. Sustained high current = overload risk
+- Active Power Total: kW demand. System capacity 100 kW
+- Power Factor: Target ≥ 0.85. Low PF = reactive losses and possible utility penalty; fix with capacitor banks
+- Frequency: Nominal 50 Hz. Deviation >±0.5 Hz = grid instability
+- THD Voltage Avg L-N: IEC 61000-2-2 limit 8 %. High THD from VFDs/UPS causes equipment overheating; fix with harmonic filters
+- Active Energy Delivered: Cumulative kWh since meter reset
+- Unit Cost: Real-time estimate at ₦208.33/kWh
+
+LIVE READINGS (as of {data.get('timestamp','--')}):
+- Voltage:       {data.get('voltage','--')} V
+- Current:       {data.get('current','--')} A
+- Active Power:  {data.get('activePower','--')} kW
+- Power Factor:  {data.get('powerFactor','--')}
+- Frequency:     {data.get('frequency','--')} Hz
+- THD:           {data.get('thd','--')} %
+- Energy:        {data.get('energy','--')} kWh
+- Est. Cost:     {data.get('totalCost','--')}
+- Meter Status:  {'Connected' if data.get('connected') else 'Offline'}
+- Active Alerts: {data.get('alerts','None detected')}
+
+Be concise and professional. Use markdown links [text](url) when referencing pages or support."""
+
+        else:
+            s = data.get('summary', {})
+            system = f"""You are an expert Power Quality AI Assistant for Akfotek Engineering Ltd's Energy Monitoring System. You assist with historical data analysis, trend interpretation, anomaly detection, and energy management decisions.
+
+YOU CAN HELP WITH:
+- Interpreting historical trends and patterns for any monitored parameter
+- Identifying anomalies, spikes, sustained deviations, and their likely causes
+- Explaining power quality concepts and recommending corrective actions
+- Comparing periods and estimating cost impact
+- Navigating between Analytics and Dashboard pages
+- Connecting users with Akfotek Engineering support
+
+SYSTEM PAGES (use markdown links when guiding navigation):
+- Dashboard — live real-time readings: [Dashboard](/)
+- Analytics — historical data viewer (current page): [Analytics](/analytics)
+
+SUPPORT:
+For further technical assistance contact Akfotek Engineering Ltd: [Email Support](mailto:support@akfotekengineering.com)
+
+Do NOT disclose hardware models, IP addresses, network topology, protocols, database names, or any system internals. If asked, respond: "That information is not available."
+
+ANALYTICS PAGE FEATURES:
+- Parameters: Voltage, Current, Active Power, Power Factor, Frequency, THD, Energy, Cost
+- Date range selector (from / to), view modes: Hourly, Daily, Weekly, Monthly
+- Charts: main trend line with min/max band, histogram distribution, data table
+- Summary stats: average, min, max, sample count
+
+PARAMETER LIMITS FOR REFERENCE:
+- Voltage 220–260 V | Power Factor ≥ 0.85 | Frequency 50 Hz ±0.5 Hz | THD < 8% (IEC) | Capacity 100 kW | Tariff ₦208.33/kWh
+
+CURRENT ANALYTICS VIEW:
+- Parameter:     {data.get('param','--')}
+- Date range:    {data.get('from','--')} to {data.get('to','--')}
+- View period:   {data.get('view','daily')}
+- Average:       {s.get('avg','--')}
+- Peak (max):    {s.get('max','--')}
+- Minimum:       {s.get('min','--')}
+- Samples:       {s.get('count','--')}
+- Active Alerts: {data.get('alerts','None detected')}
+
+Be concise and professional. Use markdown links [text](url) when referencing pages or support."""
+
+        payload = {
+            "model": CHAT_MODEL,
+            "stream": True,
+            "max_tokens": 1024,
+            "messages": [{"role": "system", "content": system}] + messages
+        }
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:5002",
+            "X-Title": "Akfotek Energy Monitor"
+        }
+
+        def generate():
+            try:
+                with requests.post(OPENROUTER_URL, headers=headers,
+                                   json=payload, stream=True, timeout=60) as r:
+                    for raw in r.iter_lines():
+                        if not raw:
+                            continue
+                        line = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+                        if not line.startswith("data: "):
+                            continue
+                        chunk = line[6:]
+                        if chunk == "[DONE]":
+                            break
+                        try:
+                            obj = json.loads(chunk)
+                            text = obj["choices"][0]["delta"].get("content", "")
+                            if text:
+                                yield f"data: {json.dumps({'text': text})}\n\n"
+                        except Exception:
+                            pass
+                yield "data: [DONE]\n\n"
+            except Exception as exc:
+                yield f"data: {json.dumps({'text': f'Error: {exc}'})}\n\n"
+                yield "data: [DONE]\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache", "Connection": "keep-alive"}
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     init_db()
