@@ -14,10 +14,23 @@ from datetime import datetime, timedelta
 from flask import Flask, jsonify, send_from_directory, request, Response, stream_with_context
 from flask_cors import CORS
 
-# ── OpenRouter API key for the AI chatbot ──────────────────
-OPENROUTER_API_KEY = "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"
-OPENROUTER_URL     = "https://openrouter.ai/api/v1/chat/completions"
-CHAT_MODEL         = "anthropic/claude-3.5-haiku"
+# ── Anthropic API key — loaded from .env (never commit the key) ────
+def _load_env():
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+    except FileNotFoundError:
+        pass
+_load_env()
+
+ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_URL      = "https://api.anthropic.com/v1/messages"
+CHAT_MODEL         = "claude-3-5-haiku-20241022"
 
 PLC_IP        = "192.168.200.100"
 PLC_RACK      = 0
@@ -271,20 +284,20 @@ Be concise and professional. Use markdown links [text](url) when referencing pag
 
         payload = {
             "model": CHAT_MODEL,
-            "stream": True,
             "max_tokens": 1024,
-            "messages": [{"role": "system", "content": system}] + messages
+            "stream": True,
+            "system": system,
+            "messages": messages
         }
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost:5002",
-            "X-Title": "Akfotek Energy Monitor"
+        req_headers = {
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json"
         }
 
         def generate():
             try:
-                with requests.post(OPENROUTER_URL, headers=headers,
+                with requests.post(ANTHROPIC_URL, headers=req_headers,
                                    json=payload, stream=True, timeout=30) as r:
                     if r.status_code != 200:
                         err = r.text[:300].strip()
@@ -292,16 +305,17 @@ Be concise and professional. Use markdown links [text](url) when referencing pag
                         yield "data: [DONE]\n\n"
                         return
                     for line in r.iter_lines(decode_unicode=True):
-                        if not line or not line.startswith("data: "):
+                        if not line or not line.startswith("data:"):
                             continue
-                        chunk = line[6:].strip()
-                        if chunk == "[DONE]":
-                            break
+                        chunk = line[5:].strip()
                         try:
                             obj = json.loads(chunk)
-                            text = obj["choices"][0]["delta"].get("content", "")
-                            if text:
-                                yield f"data: {json.dumps({'text': text})}\n\n"
+                            if obj.get("type") == "content_block_delta":
+                                text = obj.get("delta", {}).get("text", "")
+                                if text:
+                                    yield f"data: {json.dumps({'text': text})}\n\n"
+                            elif obj.get("type") == "message_stop":
+                                break
                         except Exception:
                             pass
                 yield "data: [DONE]\n\n"
