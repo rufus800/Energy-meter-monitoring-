@@ -28,9 +28,9 @@ def _load_env():
         pass
 _load_env()
 
-ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_URL      = "https://api.anthropic.com/v1/messages"
-CHAT_MODEL         = "claude-3-5-haiku-20241022"
+GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")
+GROQ_URL           = "https://api.groq.com/openai/v1/chat/completions"
+CHAT_MODEL         = "llama-3.1-8b-instant"
 
 PLC_IP        = "192.168.200.100"
 PLC_RACK      = 0
@@ -286,18 +286,16 @@ Be concise and professional. Use markdown links [text](url) when referencing pag
             "model": CHAT_MODEL,
             "max_tokens": 1024,
             "stream": True,
-            "system": system,
-            "messages": messages
+            "messages": [{"role": "system", "content": system}] + messages
         }
         req_headers = {
-            "x-api-key": ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01",
+            "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
 
         def generate():
             try:
-                with requests.post(ANTHROPIC_URL, headers=req_headers,
+                with requests.post(GROQ_URL, headers=req_headers,
                                    json=payload, stream=True, timeout=30) as r:
                     if r.status_code != 200:
                         err = r.text[:300].strip()
@@ -308,14 +306,13 @@ Be concise and professional. Use markdown links [text](url) when referencing pag
                         if not line or not line.startswith("data:"):
                             continue
                         chunk = line[5:].strip()
+                        if chunk == "[DONE]":
+                            break
                         try:
                             obj = json.loads(chunk)
-                            if obj.get("type") == "content_block_delta":
-                                text = obj.get("delta", {}).get("text", "")
-                                if text:
-                                    yield f"data: {json.dumps({'text': text})}\n\n"
-                            elif obj.get("type") == "message_stop":
-                                break
+                            text = obj["choices"][0]["delta"].get("content", "")
+                            if text:
+                                yield f"data: {json.dumps({'text': text})}\n\n"
                         except Exception:
                             pass
                 yield "data: [DONE]\n\n"
