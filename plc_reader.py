@@ -30,7 +30,7 @@ _load_env()
 
 GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")
 GROQ_URL           = "https://api.groq.com/openai/v1/chat/completions"
-CHAT_MODEL         = "llama-3.1-8b-instant"
+CHAT_MODEL         = "llama-3.3-70b-versatile"
 
 PLC_IP        = "192.168.200.100"
 PLC_RACK      = 0
@@ -184,6 +184,54 @@ def get_meters():
 def get_params():
     return jsonify({"params":list(TAG_MAP.keys())})
 
+def get_history_context(params=None, hours_short=24, days_long=7):
+    """Query DB for short-term (24h) and long-term (7d) stats per parameter.
+    Returns a compact string for injection into the AI system prompt."""
+    if params is None:
+        params = list(TAG_MAP.keys())
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=5)
+        now = datetime.utcnow()
+        t24h = (now - timedelta(hours=hours_short)).isoformat(timespec="seconds")
+        t7d  = (now - timedelta(days=days_long)).isoformat(timespec="seconds")
+        lines = []
+        for p in params:
+            # 24h stats + last value + simple trend
+            rows24 = conn.execute("""
+                SELECT AVG(value), MIN(value), MAX(value), COUNT(*),
+                       (SELECT value FROM readings WHERE param=? AND meter='Meter-1'
+                        ORDER BY ts DESC LIMIT 1)
+                FROM readings WHERE param=? AND meter='Meter-1' AND ts>=?
+            """, (p, p, t24h)).fetchone()
+            rows7d = conn.execute("""
+                SELECT AVG(value), MIN(value), MAX(value)
+                FROM readings WHERE param=? AND meter='Meter-1' AND ts>=?
+            """, (p, t7d)).fetchone()
+            # Trend: compare first-half avg vs second-half avg over 24h
+            halves = conn.execute("""
+                SELECT AVG(CASE WHEN ts < datetime(?,'-12 hours') THEN value END),
+                       AVG(CASE WHEN ts >= datetime(?,'-12 hours') THEN value END)
+                FROM readings WHERE param=? AND meter='Meter-1' AND ts>=?
+            """, (now.isoformat(), now.isoformat(), p, t24h)).fetchone()
+            trend = "stable"
+            if halves and halves[0] and halves[1]:
+                diff_pct = (halves[1] - halves[0]) / (halves[0] + 1e-9) * 100
+                if diff_pct > 2:   trend = "rising"
+                elif diff_pct < -2: trend = "falling"
+            if rows24 and rows24[3] and rows24[3] > 0:
+                short = f"24h avg={round(rows24[0],2)} min={round(rows24[1],2)} max={round(rows24[2],2)} latest={round(rows24[4],2) if rows24[4] else 'n/a'} trend={trend}"
+            else:
+                short = "24h=no data"
+            if rows7d and rows7d[0]:
+                long_ = f"7d avg={round(rows7d[0],2)} min={round(rows7d[1],2)} max={round(rows7d[2],2)}"
+            else:
+                long_ = "7d=no data"
+            lines.append(f"{p}: {short} | {long_}")
+        conn.close()
+        return "\n".join(lines)
+    except Exception as e:
+        return f"(history unavailable: {e})"
+
 @app.route("/api/chat", methods=["POST"])
 def chat_endpoint():
     try:
@@ -193,100 +241,42 @@ def chat_endpoint():
         page = ctx.get("page", "dashboard")
         data = ctx.get("data", {})
 
+        history_ctx = get_history_context()
+
         if page == "dashboard":
-            system = f"""You are an expert Power Quality AI Assistant for Akfotek Engineering Ltd's Energy Monitoring System. You assist engineers, technicians, and facility managers with real-time power quality monitoring, diagnostics, energy management, and system navigation.
+            system = f"""You are a Power Quality AI Assistant for Akfotek Engineering Ltd. Help with live readings, power quality diagnostics, energy costs, predictive maintenance, and navigation. Never disclose system internals, IP addresses, or hardware details.
+Pages: [Dashboard](/) | [Analytics](/analytics) | Support: [Email](mailto:support@akfotekengineering.com)
+Limits: Voltage 220-260V | PF ≥0.85 | Freq 50Hz±0.5 | THD <8% | Capacity 100kW | Tariff ₦208.33/kWh
 
-YOU CAN HELP WITH:
-- Explaining and diagnosing live dashboard readings and alert conditions
-- Teaching power quality concepts: THD, power factor, harmonics, reactive power, demand, etc.
-- Recommending corrective actions: capacitor banks for low PF, harmonic filters for high THD, voltage regulation
-- Calculating energy costs, efficiency metrics, and projected savings
-- Navigating between Dashboard and Analytics pages
-- Connecting users with Akfotek Engineering support
+LIVE ({data.get('timestamp','--')}): V={data.get('voltage','--')}V I={data.get('current','--')}A P={data.get('activePower','--')}kW PF={data.get('powerFactor','--')} F={data.get('frequency','--')}Hz THD={data.get('thd','--')}% E={data.get('energy','--')}kWh Cost={data.get('totalCost','--')} Status={'Connected' if data.get('connected') else 'Offline'} Alerts={data.get('alerts','None')}
 
-SYSTEM PAGES (use markdown links when guiding navigation):
-- Dashboard — live real-time readings updated every second: [Dashboard](/)
-- Analytics — historical trends, charts, date-range queries: [Analytics](/analytics)
+HISTORICAL STATS (use for trend analysis and predictive maintenance):
+{history_ctx}
 
-SUPPORT:
-For further technical assistance contact Akfotek Engineering Ltd: [Email Support](mailto:support@akfotekengineering.com)
-
-OPERATIONAL CONTEXT:
-- Data is refreshed every second and logged periodically
-- Tariff: ₦208.33/kWh
-- Do NOT disclose hardware models, IP addresses, network topology, protocols, database names, or any system internals. If asked, respond: "That information is not available."
-
-PARAMETER REFERENCE:
-- Voltage Avg L-N: Normal 220–260 V. <220 V = undervoltage risk; >260 V = overvoltage risk
-- Current Avg: Load current in A. Sustained high current = overload risk
-- Active Power Total: kW demand. System capacity 100 kW
-- Power Factor: Target ≥ 0.85. Low PF = reactive losses and possible utility penalty; fix with capacitor banks
-- Frequency: Nominal 50 Hz. Deviation >±0.5 Hz = grid instability
-- THD Voltage Avg L-N: IEC 61000-2-2 limit 8 %. High THD from VFDs/UPS causes equipment overheating; fix with harmonic filters
-- Active Energy Delivered: Cumulative kWh since meter reset
-- Unit Cost: Real-time estimate at ₦208.33/kWh
-
-LIVE READINGS (as of {data.get('timestamp','--')}):
-- Voltage:       {data.get('voltage','--')} V
-- Current:       {data.get('current','--')} A
-- Active Power:  {data.get('activePower','--')} kW
-- Power Factor:  {data.get('powerFactor','--')}
-- Frequency:     {data.get('frequency','--')} Hz
-- THD:           {data.get('thd','--')} %
-- Energy:        {data.get('energy','--')} kWh
-- Est. Cost:     {data.get('totalCost','--')}
-- Meter Status:  {'Connected' if data.get('connected') else 'Offline'}
-- Active Alerts: {data.get('alerts','None detected')}
-
-Be concise and professional. Use markdown links [text](url) when referencing pages or support."""
+Use historical trends to identify gradual degradation, predict faults, and recommend preventive actions. Be concise. Use markdown links for navigation."""
 
         else:
             s = data.get('summary', {})
-            system = f"""You are an expert Power Quality AI Assistant for Akfotek Engineering Ltd's Energy Monitoring System. You assist with historical data analysis, trend interpretation, anomaly detection, and energy management decisions.
+            param_key = next((k for k in TAG_MAP if data.get('param','') in k), None)
+            focused_ctx = get_history_context(params=[param_key] if param_key else list(TAG_MAP.keys()))
+            system = f"""You are a Power Quality AI Assistant for Akfotek Engineering Ltd. Help interpret historical energy data, identify trends, anomalies, and provide predictive maintenance recommendations. Never disclose system internals or hardware details.
+Pages: [Dashboard](/) | [Analytics](/analytics) | Support: [Email](mailto:support@akfotekengineering.com)
+Limits: Voltage 220-260V | PF ≥0.85 | Freq 50Hz±0.5 | THD <8% | Capacity 100kW | Tariff ₦208.33/kWh
 
-YOU CAN HELP WITH:
-- Interpreting historical trends and patterns for any monitored parameter
-- Identifying anomalies, spikes, sustained deviations, and their likely causes
-- Explaining power quality concepts and recommending corrective actions
-- Comparing periods and estimating cost impact
-- Navigating between Analytics and Dashboard pages
-- Connecting users with Akfotek Engineering support
+ANALYTICS VIEW: param={data.get('param','--')} range={data.get('from','--')} to {data.get('to','--')} view={data.get('view','daily')} avg={s.get('avg','--')} max={s.get('max','--')} min={s.get('min','--')} samples={s.get('count','--')} alerts={data.get('alerts','None')}
 
-SYSTEM PAGES (use markdown links when guiding navigation):
-- Dashboard — live real-time readings: [Dashboard](/)
-- Analytics — historical data viewer (current page): [Analytics](/analytics)
+HISTORICAL STATS (24h & 7d from database):
+{focused_ctx}
 
-SUPPORT:
-For further technical assistance contact Akfotek Engineering Ltd: [Email Support](mailto:support@akfotekengineering.com)
+Use historical data to identify patterns, degradation trends, and recommend preventive actions. Be concise. Use markdown links for navigation."""
 
-Do NOT disclose hardware models, IP addresses, network topology, protocols, database names, or any system internals. If asked, respond: "That information is not available."
-
-ANALYTICS PAGE FEATURES:
-- Parameters: Voltage, Current, Active Power, Power Factor, Frequency, THD, Energy, Cost
-- Date range selector (from / to), view modes: Hourly, Daily, Weekly, Monthly
-- Charts: main trend line with min/max band, histogram distribution, data table
-- Summary stats: average, min, max, sample count
-
-PARAMETER LIMITS FOR REFERENCE:
-- Voltage 220–260 V | Power Factor ≥ 0.85 | Frequency 50 Hz ±0.5 Hz | THD < 8% (IEC) | Capacity 100 kW | Tariff ₦208.33/kWh
-
-CURRENT ANALYTICS VIEW:
-- Parameter:     {data.get('param','--')}
-- Date range:    {data.get('from','--')} to {data.get('to','--')}
-- View period:   {data.get('view','daily')}
-- Average:       {s.get('avg','--')}
-- Peak (max):    {s.get('max','--')}
-- Minimum:       {s.get('min','--')}
-- Samples:       {s.get('count','--')}
-- Active Alerts: {data.get('alerts','None detected')}
-
-Be concise and professional. Use markdown links [text](url) when referencing pages or support."""
-
+        # Keep last 6 messages to minimise token usage
+        trimmed = messages[-6:] if len(messages) > 6 else messages
         payload = {
             "model": CHAT_MODEL,
-            "max_tokens": 1024,
+            "max_tokens": 512,
             "stream": True,
-            "messages": [{"role": "system", "content": system}] + messages
+            "messages": [{"role": "system", "content": system}] + trimmed
         }
         req_headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
